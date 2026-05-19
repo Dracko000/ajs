@@ -1,443 +1,213 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  LayoutDashboard, 
-  MapPin, 
-  Users, 
-  Bike, 
-  Settings, 
-  LogOut, 
-  Bell, 
-  Search,
-  Plus,
-  School,
-  Save,
-  Trash2,
-  X,
-  Navigation,
-  UserCheck,
-  CreditCard,
-  TrendingUp,
-  Link,
-  FileText,
-  Check,
-  AlertCircle,
-  ExternalLink,
-  ChevronRight,
-  Clock,
-  Calendar
-} from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import Echo from 'laravel-echo';
-import Pusher from 'pusher-js';
 import axios from 'axios';
+import L from 'leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { LayoutDashboard, MapPin, X, Plus } from 'lucide-react';
+import 'leaflet/dist/leaflet.css';
 
-window.Pusher = Pusher;
+// --- CONFIG & ICONS ---
+const API_BASE = "http://localhost:8000/api";
+const BlueIcon = L.icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41] });
+const RedIcon = L.icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41] });
 
-// Fix Leaflet marker icons
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-let DefaultIcon = L.icon({ iconUrl: icon, shadowUrl: iconShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
-let DriverIcon = L.icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/71/71422.png',
-  iconSize: [30, 30],
-  iconAnchor: [15, 15]
-});
-let SchoolIcon = L.icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/167/167707.png',
-  iconSize: [30, 30],
-  iconAnchor: [15, 15]
-});
-let AdminMarkerIcon = L.icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-});
-L.Marker.prototype.options.icon = DefaultIcon;
-
-function ChangeView({ center }) {
+// Component to handle auto-center (Safe way)
+function MapController({ center }) {
   const map = useMap();
-  useEffect(() => { if (center) map.setView(center, 13); }, [center, map]);
+  useEffect(() => { if (center) map.panTo(center); }, [center]);
   return null;
 }
 
-function MapEvents({ onClick }) {
-  useMapEvents({ click(e) { onClick(e.latlng); } });
-  return null;
-}
-
-const AdminDashboard = () => {
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [adminPosition, setAdminPosition] = useState(null);
-  const [liveDrivers, setLiveDrivers] = useState({});
-  const [pois, setPois] = useState([]);
-  const [newPoi, setNewPoi] = useState(null);
-  const [isAddingPoi, setIsAddingPoi] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [adminPos, setAdminPos] = useState([-6.23, 106.82]); // Default Jakarta
+  const [pois, setPois] = useState([]);
   
-  // Verification States
-  const [pendingDrivers, setPendingDrivers] = useState([]);
-  const [selectedDriver, setSelectedDriver] = useState(null);
+  // POI Form
+  const [isAdding, setIsAdding] = useState(false);
+  const [tempPoi, setTempPoi] = useState(null);
+  const [schoolName, setSchoolName] = useState('');
 
-  // Assignment States
-  const [studentAssignments, setStudentAssignments] = useState([]);
-  const [activeDriversList, setActiveDriversList] = useState([]);
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignForm, setAssignForm] = useState({ student_id: '', driver_id: '', type: 'pickup', scheduled_at: '06:30', day_of_week: 1 });
-
+  // 1. Initial Load
   useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        setAdminPosition([pos.coords.latitude, pos.coords.longitude]);
-        setLoading(false);
-      }, () => {
-        setAdminPosition([-6.200000, 106.816666]);
-        setLoading(false);
-      });
+    const token = localStorage.getItem('admin_token');
+    if (token) {
+      setIsLoggedIn(true);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
-
-    const echo = new Echo({
-      broadcaster: 'reverb',
-      key: 'qakimjurmp1nkxigllzn',
-      wsHost: 'localhost',
-      wsPort: 8080,
-      forceTLS: false,
-      enabledTransports: ['ws', 'wss'],
-    });
-
-    echo.channel('drivers').listen('.location.updated', (data) => {
-      setLiveDrivers(prev => ({
-        ...prev,
-        [data.driverId]: { lat: data.latitude, lon: data.longitude, updatedAt: new Date() }
-      }));
-    });
-
-    fetchPois();
-    fetchPendingDrivers();
-    fetchAssignments();
-    fetchActiveDrivers();
-    return () => echo.disconnect();
+    
+    // Detect Location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => { setAdminPos([p.coords.latitude, p.coords.longitude]); setLoading(false); },
+        () => { setLoading(false); }
+      );
+    } else { setLoading(false); }
   }, []);
 
-  const fetchPois = async () => {
-    try {
-      const res = await axios.get('http://localhost:8000/api/pois/search?q=');
-      setPois(res.data);
-    } catch (e) { console.log("POI error"); }
-  };
+  // 2. Fetch Data if Logged In
+  useEffect(() => {
+    if (isLoggedIn) {
+      const token = localStorage.getItem('admin_token');
+      axios.get(`${API_BASE}/pois/search?q=`).then(res => setPois(res.data)).catch(e => {});
 
-  const fetchPendingDrivers = async () => {
-    try {
-      const res = await axios.get('http://localhost:8000/api/admin/drivers/pending');
-      setPendingDrivers(res.data);
-    } catch (e) { console.log("Pending drivers error"); }
-  };
+      // Setup Echo
+      const echo = new Echo({
+        broadcaster: 'reverb',
+        key: 'qakimjurmp1nkxigllzn',
+        wsHost: '127.0.0.1',
+        wsPort: 8080,
+        forceTLS: false,
+        enabledTransports: ['ws'],
+        encrypted: false,
+        authEndpoint: 'http://localhost:8000/broadcasting/auth',
+        auth: { headers: { Authorization: `Bearer ${token}` } }
+      });
 
-  const fetchAssignments = async () => {
-    try {
-      const res = await axios.get('http://localhost:8000/api/admin/assignments');
-      setStudentAssignments(res.data);
-    } catch (e) { console.log("Assignments error"); }
-  };
+      echo.channel('drivers').listen('.location.updated', (data) => {
+        // Logic for live tracking
+      });
 
-  const fetchActiveDrivers = async () => {
-    // For simplicity, fetching all and filtering on backend or here
-    try {
-      const res = await axios.get('http://localhost:8000/api/admin/drivers/pending'); // Need another endpoint for active? 
-      // Assuming for now we use a general list or just mock active
-    } catch (e) { }
-  };
+      return () => echo.disconnect();
+    }
+  }, [isLoggedIn]);
 
-  const handleApproveDriver = async (id) => {
-    if (!window.confirm("Ingin mengaktifkan driver ini?")) return;
-    try {
-      await axios.post(`http://localhost:8000/api/admin/drivers/${id}/status`, { status: 'active' });
-      alert("Driver Aktif!");
-      setSelectedDriver(null);
-      fetchPendingDrivers();
-    } catch (e) { alert("Gagal verifikasi"); }
-  };
-
-  const handleAssignSubmit = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:8000/api/admin/assignments', assignForm);
-      alert("Penugasan Berhasil!");
-      setShowAssignModal(false);
-      fetchAssignments();
-    } catch (e) {
-      alert("Gagal menugaskan driver.");
+      const res = await axios.post(`${API_BASE}/login`, { email, password });
+      if (res.data.user.role !== 'admin') return alert("Bukan Admin!");
+      localStorage.setItem('admin_token', res.data.access_token);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.access_token}`;
+      setIsLoggedIn(true);
+    } catch (e) { alert("Login Gagal"); }
+  };
+
+  const savePoi = async () => {
+    if (!schoolName) return alert("Isi Nama Sekolah");
+    const token = localStorage.getItem('admin_token');
+    try {
+      await axios.post(`${API_BASE}/pois`, {
+        name: schoolName, address: 'Wilayah Cikampek', latitude: tempPoi.lat, longitude: tempPoi.lng, type: 'school'
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert("Sekolah Berhasil Disimpan!");
+      setTempPoi(null);
+      setIsAdding(false);
+      setSchoolName('');
+      const res = await axios.get(`${API_BASE}/pois/search?q=`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPois(res.data);
+    } catch (e) { 
+        console.error(e);
+        alert("Gagal Simpan: " + (e.response?.data?.message || "Terjadi kesalahan server atau koneksi.")); 
     }
   };
 
-  const handleSavePoi = async () => {
-    if (!newPoi.name || !newPoi.address) return alert("Lengkapi data!");
-    try {
-      await axios.post('http://localhost:8000/api/pois', {
-        name: newPoi.name, address: newPoi.address,
-        latitude: newPoi.lat, longitude: newPoi.lng, type: 'school'
-      });
-      setNewPoi(null);
-      setIsAddingPoi(false);
-      fetchPois();
-    } catch (e) { alert("Error simpan POI"); }
-  };
+  if (loading) return <div className="h-screen w-screen flex items-center justify-center font-bold text-ajs animate-pulse text-2xl italic tracking-tighter">AJS LOADING...</div>;
 
-  if (loading) return (
-    <div className="h-screen w-screen flex items-center justify-center bg-white">
-       <div className="w-12 h-12 border-4 border-ajs border-t-transparent rounded-full animate-spin"></div>
-    </div>
-  );
-
-  const SidebarItem = ({ id, label, icon: Icon, badge }) => (
-    <button
-      onClick={() => setActiveTab(id)}
-      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
-        activeTab === id ? 'bg-ajs text-white shadow-lg' : 'text-gray-500 hover:bg-gray-50'
-      }`}
-    >
-      <div className="flex items-center space-x-3">
-        <Icon size={20} />
-        <span className="font-semibold text-sm">{label}</span>
+  if (!isLoggedIn) return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6 font-sans">
+      <div className="w-full max-w-md bg-white p-12 rounded-[40px] shadow-2xl">
+        <h1 className="text-5xl font-black text-ajs mb-2 text-center italic tracking-tighter">AJS</h1>
+        <p className="text-center text-[10px] font-black text-gray-400 uppercase tracking-widest mb-10">Admin Center</p>
+        <form onSubmit={handleLogin} className="space-y-6">
+          <input type="email" placeholder="Email Admin" required className="w-full p-4 bg-gray-50 rounded-2xl outline-none border-2 border-transparent focus:border-ajs font-bold" value={email} onChange={e => setEmail(e.target.value)} />
+          <input type="password" placeholder="Password" required className="w-full p-4 bg-gray-50 rounded-2xl outline-none border-2 border-transparent focus:border-ajs font-bold" value={password} onChange={e => setPassword(e.target.value)} />
+          <button className="w-full bg-ajs text-white py-5 rounded-2xl font-black shadow-lg shadow-ajs/30 uppercase italic">MASUK</button>
+        </form>
       </div>
-      {badge > 0 && <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${activeTab === id ? 'bg-white text-ajs' : 'bg-ajs text-white'}`}>{badge}</span>}
-    </button>
+    </div>
   );
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+    <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-100 flex flex-col shrink-0">
-        <div className="p-6 flex items-center justify-center italic">
-          <h1 className="text-3xl font-black text-ajs tracking-tighter">AJS</h1>
-        </div>
-        <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
-          <SidebarItem id="dashboard" label="Beranda" icon={LayoutDashboard} />
-          <SidebarItem id="verification" label="Verifikasi Akun" icon={UserCheck} badge={pendingDrivers.length} />
-          <SidebarItem id="assignment" label="Penugasan Driver" icon={Link} />
-          <SidebarItem id="poi" label="Titik Sekolah" icon={MapPin} />
-          <SidebarItem id="finance" label="Laporan Keuangan" icon={CreditCard} />
+      <aside className="w-64 bg-white border-r border-gray-100 p-8 flex flex-col shrink-0">
+        <h1 className="text-3xl font-black text-ajs italic mb-12 text-center tracking-tighter">AJS</h1>
+        <nav className="flex-1 space-y-3">
+          <button onClick={() => setActiveTab('dashboard')} className={`w-full text-left p-4 rounded-2xl font-black uppercase text-xs tracking-widest ${activeTab === 'dashboard' ? 'bg-ajs text-white shadow-lg shadow-ajs/20' : 'text-gray-400'}`}>Beranda</button>
+          <button onClick={() => setActiveTab('poi')} className={`w-full text-left p-4 rounded-2xl font-black uppercase text-xs tracking-widest ${activeTab === 'poi' ? 'bg-ajs text-white shadow-lg shadow-ajs/20' : 'text-gray-400'}`}>Titik Sekolah</button>
         </nav>
+        <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="p-4 text-red-500 font-black text-xs uppercase tracking-widest">Logout</button>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto relative">
-        <header className="bg-white border-b border-gray-100 h-16 flex items-center justify-between px-8 sticky top-0 z-50">
-          <h2 className="font-bold text-gray-800 uppercase tracking-widest text-xs text-ajs italic">Admin Center</h2>
-        </header>
+      <main className="flex-1 p-10 overflow-y-auto">
+        {activeTab === 'dashboard' && (
+          <div className="space-y-8">
+            <h2 className="text-3xl font-black italic tracking-tighter uppercase underline decoration-ajs decoration-4">Live Monitor</h2>
+            <div className="h-[500px] w-full bg-white rounded-[40px] overflow-hidden shadow-2xl border-8 border-white relative">
+              <MapContainer center={adminPos} zoom={13} className="h-full w-full" zoomControl={false}>
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <MapController center={adminPos} />
+                <Marker position={adminPos} icon={BlueIcon}><Popup>Anda</Popup></Marker>
+                {pois.map(p => <Marker key={p.id} position={[p.lat, p.lon]} icon={RedIcon}><Popup>{p.name}</Popup></Marker>)}
+              </MapContainer>
+            </div>
+          </div>
+        )}
 
-        <div className="p-8">
-          {activeTab === 'dashboard' && (
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                   <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest leading-none mb-2">Driver Online</p>
-                   <p className="text-3xl font-black text-gray-900">{Object.keys(liveDrivers).length}</p>
-                </div>
-                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                   <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest leading-none mb-2">Pendaftar Baru</p>
-                   <p className="text-3xl font-black text-ajs">{pendingDrivers.length}</p>
-                </div>
+        {activeTab === 'poi' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+            <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100 flex flex-col h-[600px]">
+              <div className="flex justify-between items-center mb-8">
+                <h3 className="font-black italic text-sm tracking-widest uppercase">Daftar Titik</h3>
+                <button onClick={() => {setIsAdding(!isAdding); setTempPoi(null);}} className={`p-2 rounded-xl ${isAdding ? 'bg-red-50 text-red-500' : 'bg-ajs text-white shadow-lg'}`}>
+                  {isAdding ? <X size={20}/> : <Plus size={20}/>}
+                </button>
               </div>
-              <div className="h-[400px] bg-white rounded-[32px] border border-gray-100 overflow-hidden shadow-sm">
-                  <MapContainer center={adminPosition} zoom={13} className="h-full">
-                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                    {Object.entries(liveDrivers).map(([id, d]) => (<Marker key={id} position={[d.lat, d.lon]} icon={DriverIcon} />))}
-                  </MapContainer>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'verification' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-               <div className="space-y-4">
-                  <h3 className="text-xl font-black text-gray-900 mb-6">Menunggu Verifikasi</h3>
-                  {pendingDrivers.map((d) => (
-                    <div key={d.id} onClick={() => setSelectedDriver(d)} className={`p-5 rounded-[24px] bg-white border-2 cursor-pointer transition-all ${selectedDriver?.id === d.id ? 'border-ajs shadow-lg' : 'border-white shadow-sm'}`}>
-                       <div className="flex justify-between items-start">
-                          <div>
-                             <p className="font-black text-lg leading-none">{d.user.name}</p>
-                             <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-widest">NIK: {d.nik}</p>
-                          </div>
-                          <span className="bg-yellow-50 text-yellow-600 px-3 py-1 rounded-full text-[9px] font-black uppercase">Pending</span>
-                       </div>
-                    </div>
-                  ))}
-               </div>
-               {selectedDriver && (
-                 <div className="bg-white rounded-[32px] border border-gray-100 p-8 shadow-xl">
-                    <div className="flex justify-between items-center mb-8">
-                       <h3 className="text-xl font-black italic tracking-tighter">Review Dokumen</h3>
-                       <button onClick={() => setSelectedDriver(null)}><X /></button>
-                    </div>
-                    <div className="space-y-6">
-                       <div className="grid grid-cols-2 gap-4">
-                          <div className="bg-gray-50 p-4 rounded-2xl">
-                             <p className="text-[8px] font-black text-gray-400 uppercase">Kendaraan</p>
-                             <p className="text-xs font-bold">{selectedDriver.vehicle_model} ({selectedDriver.vehicle_number})</p>
-                          </div>
-                       </div>
-                       <button onClick={() => handleApproveDriver(selectedDriver.id)} className="w-full bg-ajs text-white py-4 rounded-2xl font-black shadow-lg">ACC DRIVER SEKARANG</button>
-                    </div>
-                 </div>
-               )}
-            </div>
-          )}
-
-          {activeTab === 'assignment' && (
-            <div className="space-y-6">
-               <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-black text-gray-900 italic tracking-tighter uppercase">Penugasan Driver Tetap</h2>
-               </div>
-               
-               <div className="grid grid-cols-1 gap-4">
-                  {studentAssignments.map((student) => (
-                    <div key={student.id} className="bg-white p-6 rounded-[32px] border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
-                       <div className="flex items-center">
-                          <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-ajs mr-4 border border-gray-100">
-                             <Users size={28} />
-                          </div>
-                          <div>
-                             <p className="font-black text-lg leading-none">{student.name}</p>
-                             <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-widest">{student.school?.name || 'Sekolah Belum Diatur'}</p>
-                          </div>
-                       </div>
-
-                       <div className="flex flex-wrap gap-3">
-                          {['pickup', 'dropoff'].map(type => {
-                             const assignment = student.manifests?.find(m => m.type === type);
-                             return (
-                               <div key={type} className={`px-5 py-3 rounded-2xl border-2 flex items-center space-x-3 ${assignment ? 'border-green-100 bg-green-50/30' : 'border-dashed border-gray-100 bg-gray-50/30'}`}>
-                                  <div>
-                                     <p className="text-[8px] font-black text-gray-400 uppercase">{type === 'pickup' ? 'Berangkat' : 'Pulang'}</p>
-                                     <p className="text-xs font-bold text-gray-800">
-                                        {assignment ? assignment.driver.user.name : 'Belum Ada Driver'}
-                                     </p>
-                                  </div>
-                                  <button 
-                                    onClick={() => {
-                                        setAssignForm({...assignForm, student_id: student.id, type: type});
-                                        setShowAssignModal(true);
-                                    }}
-                                    className="p-1.5 bg-white rounded-lg shadow-sm border border-gray-100 text-ajs hover:scale-110 transition-transform"
-                                  >
-                                     <Plus size={16} strokeWidth={3} />
-                                  </button>
-                               </div>
-                             );
-                          })}
-                       </div>
-                    </div>
-                  ))}
-               </div>
-            </div>
-          )}
-
-          {/* Assignment Modal */}
-          {showAssignModal && (
-            <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-               <div className="bg-white w-full max-w-md rounded-[40px] p-10 shadow-2xl animate-in zoom-in duration-300">
-                  <div className="flex justify-between items-center mb-8">
-                     <h3 className="text-xl font-black italic tracking-tighter uppercase">Tugaskan Driver</h3>
-                     <button onClick={() => setShowAssignModal(false)} className="bg-gray-100 p-2 rounded-full text-gray-400"><X size={20} /></button>
+              <div className="space-y-4 overflow-y-auto pr-2">
+                {pois.map(p => (
+                  <div key={p.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                    <p className="font-black text-gray-900 text-sm">{p.name}</p>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase mt-1 tracking-tighter">Verified Point</p>
                   </div>
-                  <form onSubmit={handleAssignSubmit} className="space-y-6">
-                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Pilih Driver Aktif</label>
-                        <select 
-                            required
-                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 font-bold outline-none focus:border-ajs"
-                            value={assignForm.driver_id}
-                            onChange={e => setAssignForm({...assignForm, driver_id: e.target.value})}
-                        >
-                            <option value="">Pilih Nama Driver</option>
-                            <option value="1">Budi Santoso (Active)</option>
-                            <option value="2">Andi Wijaya (Active)</option>
-                        </select>
-                     </div>
-                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Jam Jadwal</label>
-                            <input type="time" required className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 font-bold outline-none" value={assignForm.scheduled_at} onChange={e => setAssignForm({...assignForm, scheduled_at: e.target.value})} />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Hari (1-5)</label>
-                            <input type="number" min="1" max="7" required className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 font-bold outline-none" value={assignForm.day_of_week} onChange={e => setAssignForm({...assignForm, day_of_week: e.target.value})} />
-                        </div>
-                     </div>
-                     <button type="submit" className="w-full bg-ajs text-white py-4 rounded-2xl font-black shadow-lg shadow-ajs/30 flex items-center justify-center italic tracking-tighter">
-                        KONFIRMASI PENUGASAN
-                     </button>
-                  </form>
-               </div>
-            </div>
-          )}
-
-          {activeTab === 'finance' && (
-            <div className="space-y-8">
-               <h2 className="text-2xl font-black text-gray-900 leading-none italic uppercase tracking-tighter">Financial Report</h2>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100">
-                     <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2 leading-none">Profit SaaS Mingguan</p>
-                     <p className="text-4xl font-black text-green-600 italic">Rp 500.000</p>
-                  </div>
-                  <div className="bg-ajs p-8 rounded-[40px] shadow-xl text-white">
-                     <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-2 leading-none">Total Dana Escrow</p>
-                     <p className="text-4xl font-black italic">Rp 11.950.000</p>
-                  </div>
-               </div>
-            </div>
-          )}
-
-          {activeTab === 'poi' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-1 bg-white rounded-3xl border border-gray-100 p-6 flex flex-col h-[600px]">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-lg font-black text-gray-900 leading-none">Daftar POI</h3>
-                  <button onClick={() => setIsAddingPoi(!isAddingPoi)} className={`p-2 rounded-xl ${isAddingPoi ? 'bg-red-50 text-red-500' : 'bg-ajs text-white shadow-md'}`}>
-                    {isAddingPoi ? <X size={20} /> : <Plus size={20} />}
-                  </button>
-                </div>
-                <div className="flex-1 overflow-y-auto space-y-4 px-1">
-                  {pois.map((poi) => (
-                    <div key={poi.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 group">
-                      <p className="font-bold text-gray-900 text-sm">{poi.name}</p>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase mt-1 leading-none">{poi.type}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 p-6 relative">
-                <div className="h-[500px] rounded-2xl overflow-hidden border">
-                  <MapContainer center={adminPosition} zoom={13} className="h-full" zoomControl={false}>
-                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                    <ChangeView center={adminPosition} />
-                    <MapEvents onClick={(latlng) => isAddingPoi && setNewPoi({ ...latlng, name: '', address: '', type: 'school' })} />
-                    <Marker position={adminPosition} icon={AdminMarkerIcon} />
-                    {pois.map((poi) => (<Marker key={poi.id} position={[poi.lat, poi.lon]} icon={SchoolIcon} />))}
-                    {newPoi && (<Marker position={[newPoi.lat, newPoi.lng]} />)}
-                  </MapContainer>
-                </div>
-                {newPoi && (
-                  <div className="absolute top-20 right-10 z-[1001] bg-white p-6 rounded-[32px] shadow-2xl border border-gray-100 w-80">
-                    <h4 className="font-black text-gray-900 mb-4 italic uppercase tracking-tighter">Save New Point</h4>
-                    <div className="space-y-4">
-                      <input type="text" placeholder="Nama Titik" className="w-full bg-gray-50 border-none rounded-xl p-3 text-xs font-bold outline-none" value={newPoi.name} onChange={e => setNewPoi({...newPoi, name: e.target.value})} />
-                      <button onClick={handleSavePoi} className="w-full bg-ajs text-white py-3 rounded-xl font-black shadow-lg italic tracking-tighter">SIMPAN TITIK</button>
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
             </div>
-          )}
-        </div>
+
+            <div className="lg:col-span-2 relative">
+              {isAdding && <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-ajs text-white px-6 py-2 rounded-full font-black text-[10px] shadow-2xl animate-pulse tracking-widest">SILAKAN KLIK PADA PETA</div>}
+              <div className="h-[600px] w-full bg-white rounded-[40px] shadow-2xl border-8 border-white overflow-hidden relative">
+                <MapContainer center={adminPos} zoom={13} className="h-full w-full" zoomControl={false}>
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  <MapController center={adminPos} />
+                  {isAdding && <MapClickHelper onMapClick={(latlng) => setTempPoi(latlng)} />}
+                  <Marker position={adminPos} icon={BlueIcon} />
+                  {pois.map(p => <Marker key={p.id} position={[p.lat, p.lon]} icon={RedIcon} />)}
+                  {tempPoi && <Marker position={[tempPoi.lat, tempPoi.lng]} />}
+                </MapContainer>
+              </div>
+
+              {tempPoi && (
+                <div className="absolute top-20 right-8 z-[1001] bg-white p-8 rounded-[40px] shadow-2xl border border-gray-100 w-80 animate-in fade-in zoom-in duration-300">
+                  <h4 className="font-black text-gray-900 mb-6 italic uppercase tracking-tighter underline decoration-ajs decoration-2">Simpan Sekolah</h4>
+                  <input type="text" placeholder="Contoh: SDN Dawuan 01" className="w-full p-4 bg-gray-50 rounded-2xl outline-none mb-6 font-bold" value={schoolName} onChange={e => setSchoolName(e.target.value)} />
+                  <button onClick={savePoi} className="w-full bg-ajs text-white py-4 rounded-2xl font-black shadow-lg shadow-ajs/30 uppercase italic tracking-tighter">Konfirmasi Data</button>
+                  <button onClick={() => setTempPoi(null)} className="w-full text-gray-400 font-black text-[10px] mt-4 uppercase">Batal</button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
-};
+}
 
-export default AdminDashboard;
+// Map Click Helper
+function MapClickHelper({ onMapClick }) {
+  const map = useMap();
+  useEffect(() => {
+    const handler = (e) => onMapClick(e.latlng);
+    map.on('click', handler);
+    return () => map.off('click', handler);
+  }, [map, onMapClick]);
+  return null;
+}

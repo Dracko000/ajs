@@ -52,12 +52,12 @@ class PoiController extends Controller
             'type' => 'required|in:school,pickup_point,residential,other',
         ]);
 
-        // Pastikan urutan ST_GeomFromText adalah Longitude (X) kemudian Latitude (Y)
+        // Koordinat sudah divalidasi sebagai numeric, jadi aman dimasukkan langsung ke query
         $poi = Poi::create([
             'name' => $request->name,
             'address' => $request->address,
             'type' => $request->type,
-            'location' => DB::raw("ST_GeomFromText(?, 4326)", ["POINT({$request->longitude} {$request->latitude})"]),
+            'location' => DB::raw("ST_GeomFromText('POINT({$request->longitude} {$request->latitude})', 4326)"),
         ]);
 
         return response()->json($poi, 201);

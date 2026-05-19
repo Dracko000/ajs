@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ManifestController;
 use App\Http\Controllers\Api\MidtransController;
 use App\Http\Controllers\Api\WalletController;
 use App\Http\Controllers\Api\PoiController;
+use App\Http\Controllers\Api\OrderController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -26,20 +27,33 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wallet', [WalletController::class, 'show']);
     Route::post('/wallet/deposit', [MidtransController::class, 'getToken']); 
     Route::post('/wallet/pay', [WalletController::class, 'paySubscription']);
-    // Admin Specific - Driver Management
+
+    // User: Order a trip
+    Route::post('/orders', [OrderController::class, 'store']);
+    Route::get('/orders/{id}', [OrderController::class, 'show']);
+
+    // Driver Onboarding
+    Route::get('/driver/onboarding/status', [\App\Http\Controllers\Api\DriverRegistrationController::class, 'status']);
+    Route::post('/driver/onboarding/register', [\App\Http\Controllers\Api\DriverRegistrationController::class, 'register']);
+    Route::post('/driver/onboarding/upload', [\App\Http\Controllers\Api\DriverRegistrationController::class, 'uploadDocument']);
+
+    // Admin Specific
     Route::middleware('role:admin')->group(function () {
-        Route::get('/admin/drivers/pending', [\App\Http\Controllers\Api\AdminDriverController::class, 'pendingDrivers']);
-        Route::post('/admin/drivers/{id}/status', [\App\Http\Controllers\Api\AdminDriverController::class, 'updateStatus']);
-        Route::post('/admin/documents/{id}/verify', [\App\Http\Controllers\Api\AdminDriverController::class, 'verifyDocument']);
-        Route::get('/admin/assignments', [\App\Http\Controllers\Api\ManifestController::class, 'allAssignments']);
-        Route::post('/admin/assignments', [\App\Http\Controllers\Api\ManifestController::class, 'assign']);
+        Route::get('/admin/drivers/pending', [AdminDriverController::class, 'pendingDrivers']);
+        Route::post('/admin/drivers/{id}/status', [AdminDriverController::class, 'updateStatus']);
+        Route::post('/admin/documents/{id}/verify', [AdminDriverController::class, 'verifyDocument']);
+        Route::get('/admin/assignments', [ManifestController::class, 'allAssignments']);
+        Route::post('/admin/assignments', [ManifestController::class, 'assign']);
+        Route::post('/pois', [PoiController::class, 'store']);
     });
 
     // Driver Specific
     Route::middleware('role:driver')->group(function () {
+        Route::post('/driver/status', [\App\Http\Controllers\Api\DriverStatusController::class, 'toggle']);
         Route::post('/driver/location', [DriverLocationController::class, 'update']);
-        Route::get('/driver/manifest', [\App\Http\Controllers\Api\ManifestController::class, 'myManifest']);
-        Route::post('/driver/manifest/{id}/status', [\App\Http\Controllers\Api\ManifestController::class, 'updateStatus']);
+        Route::get('/driver/manifest', [ManifestController::class, 'myManifest']);
+        Route::post('/driver/manifest/{id}/status', [ManifestController::class, 'updateStatus']);
         Route::post('/wallet/withdraw', [\App\Http\Controllers\Api\WithdrawalController::class, 'withdraw']);
+        Route::post('/orders/{id}/accept', [OrderController::class, 'accept']);
     });
 });

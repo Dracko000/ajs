@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Events\DriverLocationUpdated;
 use Illuminate\Http\Request;
 use App\Models\DriverManifest;
+use App\Models\DriverLocation;
+use Illuminate\Support\Facades\DB;
 
 class DriverLocationController extends Controller
 {
@@ -23,7 +25,16 @@ class DriverLocationController extends Controller
             return response()->json(['message' => 'Driver profile not found'], 404);
         }
 
-        // Find all active manifests (picked_up) for this driver to notify parents
+        // 1. PERSIST TO DATABASE (Crucial for proximity search ST_DWithin)
+        DriverLocation::updateOrCreate(
+            ['driver_id' => $driver->id],
+            [
+                'location' => DB::raw("ST_GeomFromText('POINT({$request->longitude} {$request->latitude})', 4326)"),
+                'heading' => $request->heading
+            ]
+        );
+
+        // 2. Broadcast to active parents during trip
         $activeManifests = DriverManifest::where('driver_id', $driver->id)
             ->where('status', 'picked_up')
             ->with('student')
@@ -39,6 +50,6 @@ class DriverLocationController extends Controller
             ))->toOthers();
         }
 
-        return response()->json(['status' => 'Location updated and broadcast to active parents']);
+        return response()->json(['status' => 'Location saved and broadcasted']);
     }
 }
