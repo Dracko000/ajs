@@ -18,7 +18,7 @@ AJS adalah ekosistem aplikasi berbasis Web (PWA) yang dirancang khusus untuk mem
 ### 3. Ekosistem Keuangan & SaaS
 *   **Top-Up Midtrans**: Orang tua dapat mengisi saldo dompet melalui QRIS, Virtual Account, dan E-Wallet secara otomatis.
 *   **Withdrawal Xendit**: Driver dapat mencairkan penghasilan mereka ke 140+ bank di Indonesia secara real-time.
-*   **Model SaaS (Zero Commission)**: Driver tidak dipotong komisi per transaksi, melainkan membayar biaya sewa aplikasi flat (Rp 20.000/minggu) yang dipotong otomatis oleh sistem.
+*   **Model SaaS (Zero Commission)**: Driver tidak dipotong komisi per transaksi, mel membayar biaya sewa aplikasi flat (Rp 20.000/minggu) yang dipotong otomatis oleh sistem.
 
 ---
 
@@ -59,12 +59,59 @@ npm run dev
 
 ---
 
+## 🚀 Panduan Deployment ke VPS (Ubuntu)
+
+### 1. Persiapan Server
+Update dan install paket yang dibutuhkan:
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install nginx postgresql postgresql-contrib postgis supervisor certbot python3-certbot-nginx php8.2-fpm php8.2-pgsql php8.2-curl php8.2-xml php8.2-mbstring php8.2-zip -y
+```
+
+### 2. Setup Database
+```bash
+sudo -u postgres psql
+# Di dalam psql:
+CREATE DATABASE ajs_production;
+CREATE USER ajs_admin WITH PASSWORD 'password_anda';
+GRANT ALL PRIVILEGES ON DATABASE ajs_production TO ajs_admin;
+\c ajs_production
+CREATE EXTENSION postgis;
+\q
+```
+
+### 3. Clone Proyek & Install
+```bash
+cd /var/www
+git clone https://github.com/Dracko000/ajs.git
+cd ajs/backend
+composer install --optimize-autoloader --no-dev
+php artisan migrate --force
+```
+
+### 4. Konfigurasi Nginx
+Buat file konfigurasi di `/etc/nginx/sites-available/ajs`:
+*   Gunakan Nginx sebagai web server untuk Laravel API.
+*   Gunakan Nginx sebagai **Reverse Proxy** untuk port 8080 (Laravel Reverb) agar mendukung `wss://`.
+*   Arahkan domain berbeda (atau sub-folder) untuk ketiga PWA hasil build `npm run build`.
+
+### 5. Konfigurasi Supervisor
+Pastikan layanan Reverb dan Queue tetap hidup:
+Lihat panduan lengkap di: [README_SUPERVISOR.md](./README_SUPERVISOR.md)
+
+### 6. SSL (HTTPS)
+Jalankan Certbot untuk keamanan transaksi:
+```bash
+sudo certbot --nginx -d api.ajsanda.com -d app.ajsanda.com
+```
+
+---
+
 ## 🌍 Integrasi Pihak Ketiga
 
 1.  **Midtrans**: Gateway pembayaran masuk (Top-up).
 2.  **Xendit**: Gateway pengiriman uang (Withdrawal).
 3.  **OpenStreetMap (Leaflet)**: Layanan peta gratis & open-source.
-4.  **Ngrok**: Terowongan Webhook untuk sinkronisasi transaksi lokal.
 
 ---
 
