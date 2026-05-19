@@ -20,14 +20,17 @@ class DriverLocationUpdated implements ShouldBroadcast
     public $longitude;
     public $heading;
 
+    public $parentId;
+
     /**
      * Create a new event instance.
      */
-    public function __construct(Driver $driver, $latitude, $longitude, $heading = null)
+    public function __construct(Driver $driver, $latitude, $longitude, $parentId, $heading = null)
     {
         $this->driverId = $driver->id;
         $this->latitude = $latitude;
         $this->longitude = $longitude;
+        $this->parentId = $parentId;
         $this->heading = $heading;
     }
 
@@ -39,7 +42,7 @@ class DriverLocationUpdated implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new Channel('drivers'),
+            new PrivateChannel('tracking.' . $this->parentId),
         ];
     }
 

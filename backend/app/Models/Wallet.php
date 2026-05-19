@@ -28,6 +28,9 @@ class Wallet extends Model
     public function deposit($amount, $description = 'Top up saldo', $type = 'deposit')
     {
         return DB::transaction(function () use ($amount, $description, $type) {
+            // Re-fetch with lock
+            $wallet = DB::table('wallets')->where('id', $this->id)->lockForUpdate()->first();
+            
             $this->increment('balance', $amount);
             return $this->transactions()->create([
                 'amount' => $amount,
@@ -42,11 +45,14 @@ class Wallet extends Model
      */
     public function withdraw($amount, $description, $type = 'withdrawal')
     {
-        if ($this->balance < $amount) {
-            throw new \Exception("Saldo tidak mencukupi.");
-        }
-
         return DB::transaction(function () use ($amount, $description, $type) {
+            // Lock the row before checking balance
+            $wallet = DB::table('wallets')->where('id', $this->id)->lockForUpdate()->first();
+
+            if ($wallet->balance < $amount) {
+                throw new \Exception("Saldo tidak mencukupi.");
+            }
+
             $this->decrement('balance', $amount);
             return $this->transactions()->create([
                 'amount' => -$amount,

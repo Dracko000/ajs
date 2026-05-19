@@ -57,7 +57,7 @@ class PoiController extends Controller
             'name' => $request->name,
             'address' => $request->address,
             'type' => $request->type,
-            'location' => DB::raw("ST_GeomFromText('POINT({$request->longitude} {$request->latitude})', 4326)"),
+            'location' => DB::raw("ST_GeomFromText(?, 4326)", ["POINT({$request->longitude} {$request->latitude})"]),
         ]);
 
         return response()->json($poi, 201);

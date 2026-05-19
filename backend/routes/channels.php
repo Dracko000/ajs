@@ -15,3 +15,7 @@ Broadcast::channel('orders.{orderId}', function ($user, $orderId) {
 Broadcast::channel('drivers', function ($user) {
     return $user !== null;
 });
+
+Broadcast::channel('tracking.{parentId}', function ($user, $parentId) {
+    return (int) $user->id === (int) $parentId;
+});

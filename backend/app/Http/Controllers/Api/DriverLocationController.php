@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Events\DriverLocationUpdated;
 use Illuminate\Http\Request;
+use App\Models\DriverManifest;
 
 class DriverLocationController extends Controller
 {
@@ -22,16 +23,22 @@ class DriverLocationController extends Controller
             return response()->json(['message' => 'Driver profile not found'], 404);
         }
 
-        // In a real app, you'd save this to the database (DriverLocation model)
-        // For high-frequency updates, broadcasting alone might be sufficient or use Redis.
-        
-        broadcast(new DriverLocationUpdated(
-            $driver,
-            $request->latitude,
-            $request->longitude,
-            $request->heading
-        ))->toOthers();
+        // Find all active manifests (picked_up) for this driver to notify parents
+        $activeManifests = DriverManifest::where('driver_id', $driver->id)
+            ->where('status', 'picked_up')
+            ->with('student')
+            ->get();
 
-        return response()->json(['status' => 'Location updated']);
+        foreach ($activeManifests as $manifest) {
+            broadcast(new DriverLocationUpdated(
+                $driver,
+                $request->latitude,
+                $request->longitude,
+                $manifest->student->parent_id,
+                $request->heading
+            ))->toOthers();
+        }
+
+        return response()->json(['status' => 'Location updated and broadcast to active parents']);
     }
 }
